@@ -1,0 +1,999 @@
+
+
+
+create table #summary_sheet(
+sno int,
+activity varchar(100),
+krosl_noida_count int,
+krosl_noida_value  numeric(12,2),
+krosl_roorkee_count int,
+krosl_roorkee_vlaue  numeric(12,2),
+ssa_count int,
+ssa_value  numeric(12,2),
+ct_count int,
+ct_value  numeric(12,2)
+)
+
+insert into #summary_sheet_details(master_ou_code,employee_code,process_period_code,process_period,PPrd_From_Date,PPrd_To_Date,salary_paid)
+Select 
+pay.master_ou,pay.employee_code,pay.process_period_code,@pprd_alias_name,PPrd_From_Date,PPrd_To_Date,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+left outer join HRPYDEF_PPrd_Vw dtl (nolock)  on (pay.process_period_code=dtl.process_period_code and pay.master_ou=dtl.master_ou and language_code=1)
+where 
+pay_element_code='NT'
+AND  pay.payroll_code='REGPY'
+and dtl.pprd_alias_name = @pprd_alias_name
+union
+Select 
+pay.master_ou,pay.employee_code,pay.process_period_code,@pprd_alias_name,PPrd_From_Date,PPrd_To_Date,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+left outer join HRPYDEF_PPrd_Vw dtl (nolock)  on (pay.process_period_code=dtl.process_period_code and pay.master_ou=dtl.master_ou and language_code=1)
+where 
+pay_element_code='NT'
+AND  pay.payroll_code='REGPY'
+and dtl.pprd_alias_name = @pprd_alias_name
+
+update man
+set employment_start_date=dtl.employment_start_date
+from 
+#summary_sheet_details man ,(
+select master_ou_code,employee_code,employment_start_date 
+from epin_employee (nolock) 
+where employee_code in (select employee_code from #summary_sheet_details)
+) dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and dtl.employment_start_date between PPrd_From_Date and PPrd_To_Date
+
+update man
+set rehire_date=dtl.rehire_date
+from 
+#summary_sheet_details man ,(
+select asgn.master_ou_code,asgn.employee_code,Assignment_Effective_From_Date rehire_date
+ from  hrcmn_emp_asgn_vw asgn 
+where  assignment_type='REHIR'
+and Assignment_Effective_From_Date=(
+select min(Assignment_Effective_From_Date)
+ from  hrcmn_emp_asgn_vw asgn2 where assignment_type='REHIR' and asgn.employee_code=asgn2.employee_code) 
+) dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code
+
+update man
+set dateOfSepration=dtl.dateOfSepration
+from 
+#summary_sheet_details man ,(
+select  sep.master_ou_code,sep.employee_code ,dateadd(mi,-1439,sep.last_available_date) dateOfSepration,sep2.last_available_date dateOfSepration2
+from  hrmv_emp_sep_hdr sep 
+left outer join hrmv_emp_sep_hdr sep2 on (sep.employee_code=sep2.employee_code and sep.last_available_date<sep2.last_available_date)
+where 
+sep2.last_available_date is null 
+and 
+sep.employee_code in (select employee_code from #summary_sheet_details) 
+and sep.separation_status='A' 
+) dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and  dtl.dateOfSepration between PPrd_From_Date and PPrd_To_Date
+
+
+
+update man
+set pf_paid=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='PF'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='PF'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+
+update man
+set esi_paid=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='ESI'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='ESI'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+
+
+update man
+set hold_salary=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+left outer join hrpydef_pprd_desc_dtl dtl (nolock)  on (pay.process_period_code=dtl.process_period_code and pay.master_ou=dtl.master_ou and language_code=1)
+left outer join hrgm_addnl_dtl adtl (nolock)  on (master_key='SAL_HOLD~0~NA~NA' and active_flag='Y' and dtl.pprd_alias_name=adtl.parameter2 and pay.employee_code=adtl.parameter1 )
+where 
+pay_element_code='NT'
+AND  pay.payroll_code='REGPY'
+and dtl.pprd_alias_name = @pprd_alias_name
+and description is not null
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+left outer join hrpydef_pprd_desc_dtl dtl (nolock)  on (pay.process_period_code=dtl.process_period_code and pay.master_ou=dtl.master_ou and language_code=1)
+left outer join hrgm_addnl_dtl adtl (nolock)  on (master_key='SAL_HOLD~0~NA~NA' and active_flag='Y' and dtl.pprd_alias_name=adtl.parameter2 and pay.employee_code=adtl.parameter1 )
+where 
+pay_element_code='NT'
+AND  pay.payroll_code='REGPY'
+and dtl.pprd_alias_name = @pprd_alias_name
+and description is not null
+
+
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+
+
+update man
+set arrears=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='EXP'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='EXP'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set sales_incentives=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='SI'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='SI'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set service_incentives=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='PRMI'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='PRMI'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update #summary_sheet_details 
+set incentives=sales_incentives+service_incentives
+
+update man
+set imprest_deduction=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='SADV'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='SADV'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set education_loan_deduction=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='LN_EDU'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='LN_EDU'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set house_loan_deduction=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='LN_HSE'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='LN_HSE'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set soft_loan_deduction=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='LN_SOFT'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='LN_SOFT'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set salary_advance_loan_deduction=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='LN_SAL_ADV'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='LN_SAL_ADV'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+update man
+set vehicle_loan_deduction=dtl.pay_element_value
+from #summary_sheet_details man,(
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_pyrol_emp_pe_auth pay (nolock) 
+where 
+pay_element_code='LN_VHCL'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+union
+Select 
+pay.master_ou master_ou_code,pay.employee_code,pay.process_period_code,pay_element_value
+from  hrpyprc_emp_payroll_pe pay (nolock) 
+where 
+pay_element_code='LN_VHCL'
+AND  pay.payroll_code='REGPY'
+and pay.process_period_code in (select process_period_code from #summary_sheet_details )
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code and man.process_period_code=dtl.process_period_code
+
+declare @PPrd_From_Date datetime,	@PPrd_To_Date datetime
+
+set @PPrd_From_Date=(select top 1 PPrd_From_Date from #summary_sheet_details (nolock) )--'2016-07-01 00:00:00.000'
+set @PPrd_To_Date=(select top 1 PPrd_To_Date from #summary_sheet_details (nolock) )--'2016-07-31 00:00:00.000'
+
+update man
+set increment=dtl.increment
+from #summary_sheet_details man,(
+select a.master_ou_code,
+	a.employee_code,	
+	b.ctc_amount-a.ctc_amount increment
+from hrcompn_empflexibenft_auth_hdr a
+left outer join hrcompn_empflexibenft_auth_hdr b 
+on (a.employee_code=b.employee_code and 
+convert(varchar(30),b.effective_from,103)=convert(varchar(30),a.effective_to+1,103)	)
+where 
+( 
+b.ctc_amount  is not null and b.ctc_amount -a.ctc_amount<>0 and a.ctc_amount<>0)
+and b.effective_from between @PPrd_From_Date and @PPrd_To_Date
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code
+
+update man
+set transfer=dtl.transfer
+from #summary_sheet_details man,(
+select 
+a.master_ou_code,a.employee_code, 1 transfer
+from 
+hrei_asgn_eff_auth_dtl a 
+left outer join hrei_asgn_eff_auth_dtl b on (a.employee_code=b.employee_code and dateadd(mi,1,a.assignment_effective_to_date)=b.assignment_effective_from_date
+)
+where a.org_work_locn_code<>b.org_work_locn_code
+and b.assignment_effective_from_date between @PPrd_From_Date and @PPrd_To_Date
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code
+
+
+update man
+set promotion=dtl.promotion
+from #summary_sheet_details man,(
+select 
+a.master_ou_code,a.employee_code, 1 promotion
+from 
+hrei_asgn_eff_auth_dtl a 
+left outer join hrei_asgn_eff_auth_dtl b on (a.employee_code=b.employee_code and dateadd(mi,1,a.assignment_effective_to_date)=b.assignment_effective_from_date
+)
+where a.position_code<>b.position_code
+and b.assignment_effective_from_date between @PPrd_From_Date and @PPrd_To_Date
+)dtl
+where man.master_ou_code=dtl.master_ou_code and man.employee_code=dtl.employee_code
+
+
+
+update #summary_sheet_details set loan_deduction=education_loan_deduction  +house_loan_deduction +soft_loan_deduction +salary_advance_loan_deduction  +vehicle_loan_deduction  
+
+
+update #summary_sheet_details set company='KROSL, NOIDA' WHERE master_ou_code=2 and employee_code like '10%'
+update #summary_sheet_details set company='KROSL, ROORKEE' WHERE master_ou_code=2 and employee_code like '14%'
+update #summary_sheet_details set company='SSA' WHERE master_ou_code=3 
+update #summary_sheet_details set company='CT' WHERE master_ou_code=7
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 1 sno,'SALARY PAID' activity,* from (
+select company,count(*) cnt from #summary_sheet_details 
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 1 sno,'SALARY PAID' activity,* from (
+select company,sum(salary_paid) cnt from #summary_sheet_details 
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 2 sno,'PF PAID' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where pf_paid>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 2 sno,'PF PAID' activity,* from (
+select company,sum(pf_paid) cnt from #summary_sheet_details 
+where pf_paid>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 3 sno,'ESI PAID' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where esi_paid>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 3 sno,'ESI PAID' activity,* from (
+select company,sum(esi_paid) cnt from #summary_sheet_details 
+where esi_paid>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 4 sno,'HOLD SALARY' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where hold_salary>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 4 sno,'HOLD SALARY' activity,* from (
+select company,sum(hold_salary) cnt from #summary_sheet_details 
+where hold_salary>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 5 sno,'INCREMENT' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where increment>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 5 sno,'INCREMENT' activity,* from (
+select company,sum(increment) cnt from #summary_sheet_details 
+where increment>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 6 sno,'ARREARS' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where arrears>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 6 sno,'ARREARS' activity,* from (
+select company,sum(arrears) cnt from #summary_sheet_details 
+where arrears>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 7 sno,'INCENTIVES' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where incentives>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 7 sno,'INCENTIVES' activity,* from (
+select company,sum(incentives) cnt from #summary_sheet_details 
+where incentives>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 8 sno,'IMPREST DEDUCTION' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where imprest_deduction>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 8 sno,'IMPREST DEDUCTION' activity,* from (
+select company,sum(imprest_deduction) cnt from #summary_sheet_details 
+where imprest_deduction>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 10 sno,'LOAN DEDUCTION' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where loan_deduction>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 10 sno,'LOAN DEDUCTION' activity,* from (
+select company,sum(loan_deduction) cnt from #summary_sheet_details 
+where loan_deduction>0
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 11 sno,'JOINING' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where employment_start_date IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 11 sno,'JOINING' activity,* from (
+select company,sum(salary_paid) cnt from #summary_sheet_details 
+where employment_start_date IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 12 sno,'SEPARATION' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where dateOfSepration IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 12 sno,'SEPARATION' activity,* from (
+select company,sum(salary_paid) cnt from #summary_sheet_details 
+where dateOfSepration IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 13 sno,'TRANSFER' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where transfer IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 13 sno,'TRANSFER' activity,* from (
+select company,sum(transfer) cnt from #summary_sheet_details 
+where transfer IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+insert into #summary_sheet(sno,activity,krosl_noida_count,krosl_roorkee_count,ssa_count,ct_count)
+select 13 sno,'PROMOTION' activity,* from (
+select company,count(*) cnt from #summary_sheet_details (NOLOCK)
+where promotion IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+
+UPDATE man
+set krosl_noida_value=dtl.[KROSL, NOIDA],
+krosl_roorkee_vlaue=dtl.[KROSL, ROORKEE],
+ssa_value=dtl.SSA,
+ct_value=dtl.CT
+from #summary_sheet man,(
+select 13 sno,'PROMOTION' activity,* from (
+select company,sum(promotion) cnt from #summary_sheet_details 
+where promotion IS NOT NULL
+GROUP BY company
+)s
+pivot
+(
+max(cnt) for company
+ in ([KROSL, NOIDA],[KROSL, ROORKEE],[SSA],[CT])
+) pv 
+
+)dtl
+where man.sno=dtl.sno and man.activity=dtl.activity
+
+
+select * from #summary_sheet_details 
+
+update #summary_sheet 
+set krosl_noida_count=isnull(krosl_noida_count,0),
+krosl_noida_value=isnull(krosl_noida_value,0),
+krosl_roorkee_count=isnull(krosl_roorkee_count,0),
+krosl_roorkee_vlaue=isnull(krosl_roorkee_vlaue,0),
+ssa_count=isnull(ssa_count,0),
+ssa_value=isnull(ssa_value,0),
+ct_count=isnull(ct_count,0),
+ct_value=isnull(ct_value,0)
+
+alter table #summary_sheet add total_count int, total_value numeric(12,2)
+
+update #summary_sheet
+set total_count=krosl_noida_count	+	krosl_roorkee_count	+	ssa_count	+	ct_count	
+
+update #summary_sheet
+set total_value=	krosl_noida_value	+	krosl_roorkee_vlaue	+	ssa_value	+	ct_value
+
+select * from #summary_sheet
+
+ DECLARE	@Employee_Name					VARCHAR(200)		
+		DECLARE	@employee_code   				VARCHAR(200)	
+		DECLARE	@Employee_MailID				VARCHAR(160)		
+		DECLARE	@Employee_CCMailID				VARCHAR(160)		
+		DECLARE	@Employee_BCCMailID				VARCHAR(160)		
+		
+		DECLARE	@EMail_Text						VARCHAR(MAX)
+		DECLARE	@Err_Number						INT   
+		DECLARE	@Err_Message					VARCHAR(4000)   
+		DECLARE	@Remarks						VARCHAR(4000) 	
+		DECLARE	@Department_Description			VARCHAR(200)
+		DECLARE	@Designation		        	VARCHAR(200)
+		DECLARE	@Reporting          			VARCHAR(200)
+		DECLARE	@CC_Mail_ID						VARCHAR(1000)
+		DECLARE @BCC_Mail_ID                    VARCHAR(1000)
+		declare @ctxt_ouinstance               ctxt_ouinstance
+		set @ctxt_ouinstance=2
+		
+		DECLARE @SLNO                           VARCHAR(200)
+		DECLARE	@MailProfile	VARCHAR(100)
+		select	@MailProfile			=	dtlcomments
+		from	hrcmn_additional_mst_vw Addn (nolock)  
+		where	Addn.master_ou_code  = @ctxt_ouinstance    
+		and		Addn.master_id		= 'Mail'  
+		and		Addn.key1			= 'NA'  
+		and		Addn.key2			= 'NA'  
+		and		Addn.active_flag	= 'Y'  
+		and		getdate() between effective_from_date  and isnull(effective_to_date,getdate())
+
+	
+					  
+		declare @location varchar(100) ,@Subject_Text varchar(500)
+	
+
+		
+		select @Employee_Name='Sir',
+		@Employee_MailID='pramodk@kent.co.in',
+		--@Employee_CCMailID='aksaini@kent.co.in',
+		@Employee_BCCMailID='pramodk@kent.co.in'
+
+		--select @Employee_Name='Anjali',
+		--@Employee_MailID='pramodk@kent.co.in',
+		--@Employee_CCMailID='pramodk@kent.co.in',
+		--@Employee_BCCMailID='pramodk@kent.co.in'
+		Select @MailProfile = isnull(@MailProfile ,'Ramco_hrms') 
+		
+		if (select count(*) from kent_strikingoff_emp_logs (nolock) where  record_status='Processed' and notify is null)=0
+		begin
+						 SET @Subject_Text ='Summary Report for Month '+@pprd_alias_name
+						SET @EMail_Text =	N'<HTML>
+															<BODY>
+															<style type="text/css">body{font-family:verdana;font-size:11px;}table.sample{border-width: 1px;border-spacing: 
+															1px;border-style: solid;border-color: black;border-collapse: collapse; background-color: white;font-family:verdana;font-size:12px;}table.sample 
+															td{border-width: 1px;padding: 4px;border-style: solid;border-color: black;background-color: white;}</style><span style="font-family:verdana;
+															font-size:13px">
+															Dear '+@Employee_Name+',
+															</span>
+															<BR/>
+															<BR/>
+															<tr>
+															Summary report for Salary Process of month '+@pprd_alias_name+' has been generated for your refrence.
+															<br>
+															<br>
+															</tr>' +
+															N'<table border="1">' +N'<tr>
+															<th COLSPAN=12>Details ' +
+										
+															'</th>
+															</tr>' +  								
+															N'<tr>
+															<th>S.No</th>
+															<th>Activity</th>
+															<th >KROSL, NOIDA No.</th>
+															<th >KROSL, NOIDA Value</th>
+															<th>KROSL, ROORKEE No.</th>
+															<th>KROSL, ROORKEE Value</th>
+															<th>SSA No.</th>
+															<th>SSA Value</th>
+															<th>CT No.</th>
+															<th>CT Value</th>
+															<th>TOTAL No.</th>
+															<th>TOTAL Value</th>
+																													
+                                                                           </tr>' +  								
+															CAST (										
+															(	SELECT	
+															
+															td	=	sno	, '',
+															td	=	activity, '',
+															'right' as [td/@align], td	=	krosl_noida_count, '',
+															'right' as [td/@align],td	=	krosl_noida_value, '',
+															'right' as [td/@align],td	=	krosl_roorkee_count, '',
+															'right' as [td/@align],td	=    krosl_roorkee_vlaue, '',															
+															'right' as [td/@align],td	=	ssa_count, '',															
+															'right' as [td/@align],td	=	ssa_value , '',
+															'right' as [td/@align],td	=	ct_count , '',
+															'right' as [td/@align],td	=	ct_value , '',
+															'right' as [td/@align],td	=	total_count , '',
+															'right' as [td/@align],td	=	total_value , ''
+															from #summary_sheet (nolock)
+															FOR XML PATH('tr'), TYPE   
+																) AS NVARCHAR(MAX)   
+															) +  
+															N'</table>' +
+															N'<br/>
+															<BR/>											
+															
+															<br>
+															<br/> Regards <br>
+															<br> HRMS Team<br>
+															<br>
+															<br> * Please note that this is system generated mail and hence do not reply to this mail.'		
+
+
+								IF ((@Employee_MailID IS NOT NULL) AND (@EMail_Text IS NOT NULL))
+								BEGIN
+												EXECUTE		msdb.dbo.sp_send_dbmail  
+												@Profile_name			= @MailProfile ,
+												@recipients				= @Employee_MailID ,  
+												@copy_recipients		= @Employee_CCMailID , 
+												@blind_copy_recipients  = @Employee_BCCMailID, 
+												@subject				= @Subject_Text ,  
+												@body					= @EMail_Text ,  
+												@body_format			= 'HTML' ,  
+												@importance				= 'HIGH' ,  
+												@sensitivity			= 'CONFIDENTIAL'  		
+						
+								END 
+		end 
+
+drop table #summary_sheet
